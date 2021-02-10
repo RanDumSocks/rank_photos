@@ -41,7 +41,7 @@ class Photo:
         self._wins = wins
         self._matches = matches
 
-        self._read_and_downsample()
+        # self._read_and_downsample()
 
 
     def data(self):
@@ -99,7 +99,7 @@ class Photo:
 
         f = self._filename
 
-        data = mpimg.imread(f)
+        data = mpimg.imread(f, 0)
 
         #----------------------------------------------------------------------
         # downsample
@@ -111,14 +111,14 @@ class Photo:
 
         # dump downsample, just discard columns-n-rows
 
-        M, N = data.shape[0:2]
+        # M, N = data.shape[0:2]
 
-        MN = max([M,N])
+        # MN = max([M,N])
 
-        step = int(MN / 800)
-        if step == 0: step = 1
+        # step = int(MN / 800)
+        # if step == 0: step = 1
 
-        data = data[ 0:M:step, 0:N:step, :]
+        # data = data[ 0:M:step, 0:N:step, :]
 
         #----------------------------------------------------------------------
         # rotate
@@ -153,7 +153,8 @@ class Photo:
             data = np.rot90(data, 2)
 
         else:
-            raise RuntimeError('Unhandled rotation "%s"' % r)
+            # raise RuntimeError('Unhandled rotation "%s"' % r)
+            pass
 
         self._data = data
 
@@ -174,13 +175,16 @@ class Display(object):
 
     def __init__(self, f1, f2, title = None, figsize = None):
 
+        print(f1.filename())
+        print(f2.filename())
+
         self._choice = None
 
         assert isinstance(f1, Photo)
         assert isinstance(f2, Photo)
 
         if figsize is None:
-            figsize = [20,12]
+            figsize = [20, 12]
 
         fig = plt.figure(figsize=figsize)
 
@@ -192,10 +196,11 @@ class Display(object):
         ax21 = plt.subplot2grid((h,6), (h - 1, 1))
         ax22 = plt.subplot2grid((h,6), (h - 1, 4))
 
-        kwargs = dict(s = 'Select', ha = 'center', va = 'center', fontsize=20)
+        kwargs = dict(s = f1.filename(), ha = 'center', va = 'center', fontsize=20)
+        kwargs2 = dict(s = f2.filename(), ha = 'center', va = 'center', fontsize=20)
 
         ax21.text(0.5, 0.5, **kwargs)
-        ax22.text(0.5, 0.5, **kwargs)
+        ax22.text(0.5, 0.5, **kwargs2)
 
         self._fig = fig
         self._ax_select_left = ax21
@@ -209,6 +214,9 @@ class Display(object):
             wspace = 0.05,
             hspace = 0,
         )
+
+        f1._read_and_downsample()
+        f2._read_and_downsample()
 
         ax11.imshow(f1.data())
         ax12.imshow(f2.data())
@@ -225,7 +233,11 @@ class Display(object):
         if title:
             fig.suptitle(title, fontsize=20)
 
+        mng = plt.get_current_fig_manager()
+        mng.full_screen_toggle()
+
         plt.show()
+
 
 
     def _on_click(self, event):
@@ -303,15 +315,15 @@ class EloTable:
 
         n_photos = len(self._photos)
 
-        keys = self._photos.keys()
+        keys = list(self._photos.keys())
 
-        for i in xrange(n_iterations):
+        for i in range(n_iterations):
 
             np.random.shuffle(keys)
 
             n_matchups = n_photos / 2
 
-            for j in xrange(0, n_photos - 1, 2):
+            for j in range(0, n_photos - 1, 2):
 
                 match_up = j / 2
 
@@ -319,6 +331,8 @@ class EloTable:
                     i + 1, n_iterations,
                     match_up + 1,
                     n_matchups)
+
+
 
                 photo_a = self._photos[keys[j]]
                 photo_b = self._photos[keys[j+1]]
@@ -433,6 +447,8 @@ better photo.
     # glob for files, to include newly added files
 
     filelist = glob.glob('*.jpg')
+    filelist.extend(glob.glob('*.png'))
+    filelist.extend(glob.glob('*.gif'))
 
     for f in filelist:
         table.add_photo(f)
@@ -482,12 +498,12 @@ better photo.
     #--------------------------------------------------------------------------
     # dump ranked list to screen
 
-    print "Final Ranking:"
+    print("Final Ranking:")
 
     with open(ranked_txt, 'r') as fd:
         text = fd.read()
 
-    print text
+    print(text)
 
 
 
