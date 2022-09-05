@@ -390,7 +390,7 @@ class EloTable:
 
         if self.smart:
 
-            variation = min(5, n_photos)
+            variation = min(15, n_photos)
 
             photoList = list(self._photos.values())
 
