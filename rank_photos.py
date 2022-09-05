@@ -13,6 +13,8 @@ import json
 import os
 import sys
 import signal
+import subprocess
+import random
 
 
 # 3rd party
@@ -155,6 +157,78 @@ class Photo:
 
         self._data = data
 
+class Slideshow():
+
+    def __init__(self, figsize = None):
+
+        if figsize is None:
+            figsize = [20, 12]
+
+        self.figsize = figsize
+
+        self.photoList = table.get_ranked_list()
+        self.ind = 0
+
+        self.fig = plt.figure(figsize=self.figsize)
+        self.changeImage()
+
+        mng = plt.get_current_fig_manager()
+        mng.full_screen_toggle()
+
+        plt.show()
+
+
+    def _on_key_press(self, event):
+
+        if event.key == 'left':
+            self.ind -= 1
+            plt.clf()
+            self.changeImage()
+            plt.draw()
+
+        elif event.key == 'right':
+            self.ind += 1
+            plt.clf()
+            self.changeImage()
+            plt.draw()
+
+        if event.key == 'up':
+            self.ind += 10
+            plt.clf()
+            self.changeImage()
+            plt.draw()
+
+        elif event.key == 'down':
+            self.ind -= 10
+            plt.clf()
+            self.changeImage()
+            plt.draw()
+
+        elif event.key == 'escape':
+            sys.exit(0)
+
+        elif event.key == ' ':
+            subprocess.Popen('explorer /select,"{}"'.format(self.photoList[self.ind]._filename))
+
+    def changeImage(self):
+        photo = self.photoList[self.ind]
+        assert isinstance(photo, Photo)
+
+        plt.suptitle(photo._filename)
+        plt.title("Rank #{}/{} ({:.0f})".format(((self.ind) % (len(self.photoList))) + 1, len(self.photoList), photo._score))
+
+        photo._read_and_downsample()
+
+        plt.imshow(photo.data())
+
+        plt.gca().set_xticklabels([])
+        plt.gca().set_yticklabels([])
+
+        plt.gca().set_xticks([])
+        plt.gca().set_yticks([])
+
+        self.fig.canvas.mpl_connect('key_press_event', self._on_key_press)
+
 
 class Display(object):
     """
@@ -254,6 +328,9 @@ class Display(object):
             self._choice = Photo.RIGHT
             plt.close(self._fig)
 
+        elif event.key == 'escape':
+            shutdown()
+
 
     def _attach_callbacks(self):
         self._fig.canvas.mpl_connect('button_press_event', self._on_click)
@@ -263,10 +340,11 @@ class Display(object):
 class EloTable:
 
 
-    def __init__(self, max_increase = 32.0):
+    def __init__(self, max_increase = 32.0, smart = False):
         self._K = max_increase
         self._photos = {}
         self._shuffled_keys = []
+        self.smart = smart
 
 
     def add_photo(self, filename_or_photo):
@@ -310,25 +388,24 @@ class EloTable:
 
         keys = list(self._photos.keys())
 
-        for i in range(n_iterations):
+        if self.smart:
 
-            np.random.shuffle(keys)
+            variation = min(5, n_photos)
 
-            n_matchups = n_photos / 2
+            photoList = list(self._photos.values())
 
-            for j in range(0, n_photos - 1, 2):
+            while True:
+                photoList.sort(key=lambda k: k._score)
+                randNum = random.randint(0, n_photos - variation)
+                sublist = photoList[randNum:randNum + variation]
+                sublist.sort(key=lambda k: k._matches)
 
-                match_up = j / 2
+                photo_a = sublist[0]
+                photo_b = sublist[1]
 
-                title = 'Round %d / %d, Match Up %d / %d' % (
-                    i + 1, n_iterations,
-                    match_up + 1,
-                    n_matchups)
+                eloRisk = 32 * (1 - (1.0 / (1.0 + 10.0 ** ((photo_b._score - photo_a._score) / 400.0))))
 
-
-
-                photo_a = self._photos[keys[j]]
-                photo_b = self._photos[keys[j+1]]
+                title = "matches {}:{} | Elo {:.0f}:{:.0f} ({:.1f})".format(photo_a._matches, photo_b._matches, photo_a._score, photo_b._score, eloRisk)
 
                 d = Display(photo_a, photo_b, title, figsize)
 
@@ -339,6 +416,36 @@ class EloTable:
                 else:
                     raise RuntimeError("oops, found a bug!")
 
+        else:
+            for i in range(n_iterations):
+
+                np.random.shuffle(keys)
+
+                n_matchups = n_photos / 2
+
+                for j in range(0, n_photos - 1, 2):
+
+                    match_up = j / 2
+
+                    title = 'Round %d / %d, Match Up %d / %d' % (
+                        i + 1, n_iterations,
+                        match_up + 1,
+                        n_matchups)
+
+
+
+                    photo_a = self._photos[keys[j]]
+                    photo_b = self._photos[keys[j+1]]
+
+                    d = Display(photo_a, photo_b, title, figsize)
+
+                    if d._choice == Photo.LEFT:
+                        self.__score_result(photo_a, photo_b)
+                    elif d._choice == Photo.RIGHT:
+                        self.__score_result(photo_b, photo_a)
+                    else:
+                        raise RuntimeError("oops, found a bug!")
+
 
     def __score_result(self, winning_photo, loosing_photo):
 
@@ -348,9 +455,9 @@ class EloTable:
 
         # Expectation
 
-        E_a = 1.0 / (1.0 + 10.0 ** ((R_a - R_b) / 400.0))
+        E_a = 1.0 / (1.0 + 10.0 ** ((R_b - R_a) / 400.0))
 
-        E_b = 1.0 / (1.0 + 10.0 ** ((R_b - R_a) / 400.0))
+        E_b = 1.0 / (1.0 + 10.0 ** ((R_a - R_b) / 400.0))
 
         # New ratings
         R_a = R_a + self._K * (1.0 - E_a)
@@ -390,6 +497,20 @@ better photo.
     )
 
     parser.add_argument(
+        "-s",
+        "--slideshow",
+        action='store_true',
+        help = "Start a slideshow from top ranked to least ranked"
+    )
+
+    parser.add_argument(
+        "-S",
+        "--smart",
+        action='store_true',
+        help = "Instead of random images, selects good matchups for best results."
+    )
+
+    parser.add_argument(
         "-f",
         "--figsize",
         nargs = 2,
@@ -412,7 +533,7 @@ better photo.
 
     args = parser.parse_args()
 
-    commPath = os.path.commonpath(args.photo_dir)
+    commPath = os.path.commonpath(args.photo_dir) if len(args.photo_dir) > 1 else args.photo_dir[0]
     dataLocation = args.data if args.data else commPath
 
     assert os.path.isdir(dataLocation)
@@ -429,7 +550,7 @@ better photo.
     # Create the ranking table and add photos to it.
 
     global table
-    table = EloTable()
+    table = EloTable(smart = args.smart)
 
     #--------------------------------------------------------------------------
     # Read in table .json if present
@@ -449,12 +570,15 @@ better photo.
 
             table.add_photo(photo)
 
+    if args.slideshow:
+        Slideshow(args.figsize)
+        return
+
     #--------------------------------------------------------------------------
     # glob for files, to include newly added files
 
     for path in args.photo_dir:
-        pathNorm = path.replace(commPath + "\\", "")
-        print(pathNorm)
+        pathNorm = path.replace(commPath + "\\", "") if len(args.photo_dir) > 1 else ""
         filelist = glob.glob(os.path.join(pathNorm, '*.jpg'))
         filelist.extend(glob.glob(os.path.join(pathNorm, '*.png')))
         filelist.extend(glob.glob(os.path.join(pathNorm, '*.gif')))
@@ -475,12 +599,14 @@ better photo.
     #--------------------------------------------------------------------------
     # Rank the photos!
 
+    signal.signal(signal.SIGINT, shutdown)
+
     table.rank_photos(args.n_rounds, args.figsize)
 
     shutdown()
 
 
-def shutdown(signum, frame):
+def shutdown():
 
     print('Shutting Down')
     
@@ -529,8 +655,6 @@ def shutdown(signum, frame):
 
     print(text)
     sys.exit(0)
-
-signal.signal(signal.SIGINT, shutdown)
 
 table = None
 ranking_table_json = None
