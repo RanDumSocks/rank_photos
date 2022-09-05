@@ -1,13 +1,9 @@
 #!/usr/bin/env python
 """
 Matplotlib based photo ranking system using the Elo rating system.
-
 Reference: http://en.wikipedia.org/wiki/Elo_rating_system
-
 by Nick Hilton
-
 This file is in the public domain.
-
 """
 
 # Python
@@ -16,6 +12,7 @@ import glob
 import json
 import os
 import sys
+import signal
 
 
 # 3rd party
@@ -72,7 +69,7 @@ class Photo:
 
 
     def win_percentage(self):
-        return 100.0 * float(self._wins) / float(self._matches)
+        return (100.0 * float(self._wins) / float(self._matches)) if self._matches != 0 else 0
 
 
     def __eq__(self, rhs):
@@ -163,13 +160,9 @@ class Display(object):
     """
     Given two photos, displays them with Matplotlib and provides a graphical
     means of choosing the better photo.
-
     Click on the select button to pick the better photo.
-
     ~OR~
-
     Press the left or right arrow key to pick the better photo.
-
     """
 
 
@@ -231,7 +224,7 @@ class Display(object):
         self._attach_callbacks()
 
         if title:
-            fig.suptitle(title, fontsize=20)
+            fig.suptitle(title, fontsize=14)
 
         mng = plt.get_current_fig_manager()
         mng.full_screen_toggle()
@@ -383,10 +376,8 @@ def main():
 Uses the Elo ranking algorithm to sort your images by rank.  The program globs
 for .jpg images to present to you in random order, then you select the better
 photo.  After n-rounds, the results are reported.
-
 Click on the "Select" button or press the LEFT or RIGHT arrow to pick the
 better photo.
-
 """
     parser = argparse.ArgumentParser(description = description)
 
@@ -408,21 +399,36 @@ better photo.
     )
 
     parser.add_argument(
+        "-d",
+        "--data",
+        help = "Directory where to save and read data from"
+    )
+
+    parser.add_argument(
         "photo_dir",
-        help = "The photo directory to scan for .jpg images"
+        help = "The photo directory to scan for .jpg images",
+        nargs = '+'
     )
 
     args = parser.parse_args()
 
-    assert os.path.isdir(args.photo_dir)
+    commPath = os.path.commonpath(args.photo_dir)
+    dataLocation = args.data if args.data else commPath
 
-    os.chdir(args.photo_dir)
+    assert os.path.isdir(dataLocation)
+    for path in args.photo_dir:
+        assert os.path.isdir(path)
 
-    ranking_table_json = 'ranking_table.json'
-    ranked_txt         = 'ranked.txt'
+    os.chdir(commPath)
+
+    global ranking_table_json
+    global ranked_txt
+    ranking_table_json = os.path.join(dataLocation, 'ranking_table.json')
+    ranked_txt         = os.path.join(dataLocation, 'ranked.txt')
 
     # Create the ranking table and add photos to it.
 
+    global table
     table = EloTable()
 
     #--------------------------------------------------------------------------
@@ -446,12 +452,23 @@ better photo.
     #--------------------------------------------------------------------------
     # glob for files, to include newly added files
 
-    filelist = glob.glob('*.jpg')
-    filelist.extend(glob.glob('*.png'))
-    filelist.extend(glob.glob('*.gif'))
+    for path in args.photo_dir:
+        pathNorm = path.replace(commPath + "\\", "")
+        print(pathNorm)
+        filelist = glob.glob(os.path.join(pathNorm, '*.jpg'))
+        filelist.extend(glob.glob(os.path.join(pathNorm, '*.png')))
+        filelist.extend(glob.glob(os.path.join(pathNorm, '*.gif')))
 
-    for f in filelist:
-        table.add_photo(f)
+        for f in filelist:
+            table.add_photo(f)
+
+    #def sorting(kv):
+    #    return kv[1]._matches
+    #
+    #table._photos = dict(sorted(table._photos.items(), key=sorting))
+    #
+    #for k in table._photos:
+    #    print(k)
 
     print(" done!")
 
@@ -460,10 +477,17 @@ better photo.
 
     table.rank_photos(args.n_rounds, args.figsize)
 
+    shutdown()
+
+
+def shutdown(signum, frame):
+
+    print('Shutting Down')
+    
     #--------------------------------------------------------------------------
     # save the table
 
-    with open(ranking_table_json, 'w') as fd:
+    with open(ranking_table_json, 'w', encoding="utf-8") as fd:
 
         d = table.to_dict()
 
@@ -474,7 +498,7 @@ better photo.
     #--------------------------------------------------------------------------
     # dump ranked list to disk
 
-    with open(ranked_txt, 'w') as fd:
+    with open(ranked_txt, 'w', encoding="utf-8") as fd:
 
         ranked_list = table.get_ranked_list()
 
@@ -500,11 +524,16 @@ better photo.
 
     print("Final Ranking:")
 
-    with open(ranked_txt, 'r') as fd:
+    with open(ranked_txt, 'r', encoding="utf-8") as fd:
         text = fd.read()
 
     print(text)
+    sys.exit(0)
 
+signal.signal(signal.SIGINT, shutdown)
 
+table = None
+ranking_table_json = None
+ranked_txt = None
 
 if __name__ == "__main__": main()
